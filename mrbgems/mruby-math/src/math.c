@@ -4,23 +4,96 @@
 ** See Copyright Notice in mruby.h
 */
 
-#include "mruby.h"
-#include "mruby/array.h"
+#ifdef MRB_WITHOUT_FLOAT
+# error Math conflicts 'MRB_WITHOUT_FLOAT' configuration in your 'build_config.rb'
+#endif
+
+#include <mruby.h>
+#include <mruby/array.h>
 
 #include <math.h>
 
-#define domain_error(msg) \
-    mrb_raise(mrb, E_RANGE_ERROR, "Numerical argument is out of domain - " #msg)
+static void
+domain_error(mrb_state *mrb, const char *func)
+{
+  struct RClass *math = mrb_module_get(mrb, "Math");
+  struct RClass *domainerror = mrb_class_get_under(mrb, math, "DomainError");
+  mrb_raisef(mrb, domainerror, "Numerical argument is out of domain - %s", func);
+}
 
 /* math functions not provided by Microsoft Visual C++ 2012 or older */
-#if defined _MSC_VER && _MSC_VER < 1800
+#if defined _MSC_VER && _MSC_VER <= 1700
 
-#define MATH_TOLERANCE 1E-12
+#include <float.h>
 
-#define asinh(x) log(x + sqrt(pow(x,2.0) + 1))
-#define acosh(x) log(x + sqrt(pow(x,2.0) - 1))
-#define atanh(x) (log(1+x) - log(1-x))/2.0
-#define cbrt(x)  pow(x,1.0/3.0)
+double
+asinh(double x)
+{
+  double xa, ya, y;
+
+  /* Basic formula loses precision for x < 0, but asinh is an odd function */
+  xa = fabs(x);
+  if (xa > 3.16227E+18) {
+    /* Prevent x*x from overflowing; basic formula reduces to log(2*x) */
+    ya = log(xa) + 0.69314718055994530942;
+  }
+  else {
+    /* Basic formula for asinh */
+    ya = log(xa + sqrt(xa*xa + 1.0));
+  }
+
+  y = _copysign(ya, x);
+  return y;
+}
+
+double
+acosh(double x)
+{
+  double y;
+
+  if (x > 3.16227E+18) {
+    /* Prevent x*x from overflowing; basic formula reduces to log(2*x) */
+    y = log(x) + 0.69314718055994530942;
+  }
+  else {
+    /* Basic formula for acosh */
+    y = log(x + sqrt(x*x - 1.0));
+  }
+
+  return y;
+}
+
+double
+atanh(double x)
+{
+  double y;
+
+  if (fabs(x) < 1E-2) {
+    /* The sums 1+x and 1-x lose precision for small x.  Use the polynomial
+       instead. */
+    double x2 = x * x;
+    y = x*(1.0 + x2*(1.0/3.0 + x2*(1.0/5.0 + x2*(1.0/7.0))));
+  }
+  else {
+    /* Basic formula for atanh */
+    y = 0.5 * (log(1.0+x) - log(1.0-x));
+  }
+
+  return y;
+}
+
+double
+cbrt(double x)
+{
+  double xa, ya, y;
+
+  /* pow(x, y) is undefined for x < 0 and y not an integer, but cbrt is an
+     odd function */
+  xa = fabs(x);
+  ya = pow(xa, 1.0/3.0);
+  y = _copysign(ya, x);
+  return y;
+}
 
 /* Declaration of complementary Error function */
 double
@@ -50,7 +123,8 @@ erf(double x)
     term *= xsqr/j;
     sum  += term/(2*j+1);
     ++j;
-  } while (fabs(term/sum) > MATH_TOLERANCE);
+    if (sum == 0) break;
+  } while (fabs(term/sum) > DBL_EPSILON);
   return two_sqrtpi*sum;
 }
 
@@ -83,10 +157,14 @@ erfc(double x)
     n += 0.5;
     q1 = q2;
     q2 = b/d;
-  } while (fabs(q1-q2)/q2 > MATH_TOLERANCE);
+  } while (fabs(q1-q2)/q2 > DBL_EPSILON);
   return one_sqrtpi*exp(-x*x)*q2;
 }
 
+#endif
+
+#if defined __FreeBSD__ && !defined __FreeBSD_version
+#include <osreldate.h> /* for __FreeBSD_version */
 #endif
 
 #if (defined _MSC_VER && _MSC_VER < 1800) || defined __ANDROID__ || (defined __FreeBSD__  &&  __FreeBSD_version < 803000)
@@ -164,7 +242,8 @@ math_tan(mrb_state *mrb, mrb_value obj)
  *  call-seq:
  *     Math.asin(x)    -> float
  *
- *  Computes the arc sine of <i>x</i>. Returns -{PI/2} .. {PI/2}.
+ *  Computes the arc sine of <i>x</i>.
+ *  @return computed value between `-(PI/2)` and `(PI/2)`.
  */
 static mrb_value
 math_asin(mrb_state *mrb, mrb_value obj)
@@ -172,6 +251,9 @@ math_asin(mrb_state *mrb, mrb_value obj)
   mrb_float x;
 
   mrb_get_args(mrb, "f", &x);
+  if (x < -1.0 || x > 1.0) {
+    domain_error(mrb, "asin");
+  }
   x = asin(x);
 
   return mrb_float_value(mrb, x);
@@ -189,6 +271,9 @@ math_acos(mrb_state *mrb, mrb_value obj)
   mrb_float x;
 
   mrb_get_args(mrb, "f", &x);
+  if (x < -1.0 || x > 1.0) {
+    domain_error(mrb, "acos");
+  }
   x = acos(x);
 
   return mrb_float_value(mrb, x);
@@ -198,7 +283,7 @@ math_acos(mrb_state *mrb, mrb_value obj)
  *  call-seq:
  *     Math.atan(x)    -> float
  *
- *  Computes the arc tangent of <i>x</i>. Returns -{PI/2} .. {PI/2}.
+ *  Computes the arc tangent of <i>x</i>. Returns `-(PI/2) .. (PI/2)`.
  */
 static mrb_value
 math_atan(mrb_state *mrb, mrb_value obj)
@@ -334,6 +419,9 @@ math_acosh(mrb_state *mrb, mrb_value obj)
   mrb_float x;
 
   mrb_get_args(mrb, "f", &x);
+  if (x < 1.0) {
+    domain_error(mrb, "acosh");
+  }
   x = acosh(x);
 
   return mrb_float_value(mrb, x);
@@ -351,6 +439,9 @@ math_atanh(mrb_state *mrb, mrb_value obj)
   mrb_float x;
 
   mrb_get_args(mrb, "f", &x);
+  if (x < -1.0 || x > 1.0) {
+    domain_error(mrb, "atanh");
+  }
   x = atanh(x);
 
   return mrb_float_value(mrb, x);
@@ -359,14 +450,6 @@ math_atanh(mrb_state *mrb, mrb_value obj)
 /*
   EXPONENTIALS AND LOGARITHMS
 */
-#if defined __CYGWIN__
-# include <cygwin/version.h>
-# if CYGWIN_VERSION_DLL_MAJOR < 1005
-#  define nan(x) nan()
-# endif
-# define log(x) ((x) < 0.0 ? nan("") : log(x))
-# define log10(x) ((x) < 0.0 ? nan("") : log10(x))
-#endif
 
 /*
  *  call-seq:
@@ -409,11 +492,17 @@ static mrb_value
 math_log(mrb_state *mrb, mrb_value obj)
 {
   mrb_float x, base;
-  int argc;
+  mrb_int argc;
 
   argc = mrb_get_args(mrb, "f|f", &x, &base);
+  if (x < 0.0) {
+    domain_error(mrb, "log");
+  }
   x = log(x);
   if (argc == 2) {
+    if (base < 0.0) {
+      domain_error(mrb, "log");
+    }
     x /= log(base);
   }
   return mrb_float_value(mrb, x);
@@ -437,6 +526,9 @@ math_log2(mrb_state *mrb, mrb_value obj)
   mrb_float x;
 
   mrb_get_args(mrb, "f", &x);
+  if (x < 0.0) {
+    domain_error(mrb, "log2");
+  }
   x = log2(x);
 
   return mrb_float_value(mrb, x);
@@ -459,6 +551,9 @@ math_log10(mrb_state *mrb, mrb_value obj)
   mrb_float x;
 
   mrb_get_args(mrb, "f", &x);
+  if (x < 0.0) {
+    domain_error(mrb, "log10");
+  }
   x = log10(x);
 
   return mrb_float_value(mrb, x);
@@ -477,6 +572,9 @@ math_sqrt(mrb_state *mrb, mrb_value obj)
   mrb_float x;
 
   mrb_get_args(mrb, "f", &x);
+  if (x < 0.0) {
+    domain_error(mrb, "sqrt");
+  }
   x = sqrt(x);
 
   return mrb_float_value(mrb, x);
@@ -565,7 +663,7 @@ math_ldexp(mrb_state *mrb, mrb_value obj)
   mrb_int   i;
 
   mrb_get_args(mrb, "fi", &x, &i);
-  x = ldexp(x, i);
+  x = ldexp(x, (int)i);
 
   return mrb_float_value(mrb, x);
 }
@@ -632,6 +730,8 @@ mrb_mruby_math_gem_init(mrb_state* mrb)
   struct RClass *mrb_math;
   mrb_math = mrb_define_module(mrb, "Math");
 
+  mrb_define_class_under(mrb, mrb_math, "DomainError", mrb->eStandardError_class);
+
 #ifdef M_PI
   mrb_define_const(mrb, mrb_math, "PI", mrb_float_value(mrb, M_PI));
 #else
@@ -642,12 +742,6 @@ mrb_mruby_math_gem_init(mrb_state* mrb)
   mrb_define_const(mrb, mrb_math, "E", mrb_float_value(mrb, M_E));
 #else
   mrb_define_const(mrb, mrb_math, "E", mrb_float_value(mrb, exp(1.0)));
-#endif
-
-#ifdef MRB_USE_FLOAT
-  mrb_define_const(mrb, mrb_math, "TOLERANCE", mrb_float_value(mrb, 1e-5));
-#else
-  mrb_define_const(mrb, mrb_math, "TOLERANCE", mrb_float_value(mrb, 1e-12));
 #endif
 
   mrb_define_module_function(mrb, mrb_math, "sin", math_sin, MRB_ARGS_REQ(1));

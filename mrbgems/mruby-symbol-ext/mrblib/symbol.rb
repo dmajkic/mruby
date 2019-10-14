@@ -1,21 +1,7 @@
 class Symbol
+  include Comparable
 
-  def to_proc
-    Proc.new do |obj, *args|
-      obj.send(self, *args)
-    end
-  end
-
-  ##
-  # call-seq:
-  #   sym.length    -> integer
-  #
-  # Same as <code>sym.to_s.length</code>.
-
-  def length
-    self.to_s.length
-  end
-  alias :size :length
+  alias intern to_sym
 
   ##
   # call-seq:
@@ -24,7 +10,7 @@ class Symbol
   # Same as <code>sym.to_s.capitalize.intern</code>.
 
   def capitalize
-    self.to_s.capitalize.intern
+    self.to_s.capitalize.to_sym
   end
 
   ##
@@ -34,7 +20,7 @@ class Symbol
   # Same as <code>sym.to_s.downcase.intern</code>.
 
   def downcase
-    self.to_s.downcase.intern
+    self.to_s.downcase.to_sym
   end
 
   ##
@@ -44,7 +30,33 @@ class Symbol
   # Same as <code>sym.to_s.upcase.intern</code>.
 
   def upcase
-    self.to_s.upcase.intern
+    self.to_s.upcase.to_sym
+  end
+
+  ##
+  # call-seq:
+  #   sym.casecmp(other)  -> -1, 0, +1 or nil
+  #
+  # Case-insensitive version of <code>Symbol#<=></code>.
+
+  def casecmp(other)
+    return nil unless other.kind_of?(Symbol)
+    lhs =  self.to_s.upcase
+    rhs = other.to_s.upcase
+    lhs <=> rhs
+  end
+
+  ##
+  # call-seq:
+  #   sym.casecmp?(other)  -> true, false, or nil
+  #
+  # Returns true if sym and other_sym are equal after case folding,
+  # false if they are not equal, and nil if other_sym is not a string.
+
+  def casecmp?(sym)
+    c = self.casecmp(sym)
+    return nil if c.nil?
+    return c == 0
   end
 
   #
@@ -54,7 +66,7 @@ class Symbol
   # Returns that _sym_ is :"" or not.
 
   def empty?
-    self.to_s.empty?
+    self.length == 0
   end
 
 end

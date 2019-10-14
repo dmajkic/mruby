@@ -1,35 +1,8 @@
-#include "mruby.h"
-#include "mruby/value.h"
-#include "mruby/array.h"
-
-/*
- *  call-seq:
- *     Array.try_convert(obj) -> array or nil
- *
- *  Try to convert <i>obj</i> into an array, using +to_ary+ method.
- *  Returns converted array or +nil+ if <i>obj</i> cannot be converted
- *  for any reason. This method can be used to check if an argument is an
- *  array.
- *
- *     Array.try_convert([1])   #=> [1]
- *     Array.try_convert("1")   #=> nil
- *
- *     if tmp = Array.try_convert(arg)
- *       # the argument is an array
- *     elsif tmp = String.try_convert(arg)
- *       # the argument is a string
- *     end
- *
- */
-
-static mrb_value
-mrb_ary_s_try_convert(mrb_state *mrb, mrb_value self)
-{
-  mrb_value ary;
-
-  mrb_get_args(mrb, "o", &ary);
-  return mrb_check_array_type(mrb, ary);
-}
+#include <mruby.h>
+#include <mruby/value.h>
+#include <mruby/array.h>
+#include <mruby/range.h>
+#include <mruby/hash.h>
 
 /*
  *  call-seq:
@@ -92,7 +65,7 @@ mrb_ary_rassoc(mrb_state *mrb, mrb_value ary)
 
   for (i = 0; i < RARRAY_LEN(ary); ++i) {
     v = RARRAY_PTR(ary)[i];
-    if (mrb_type(v) == MRB_TT_ARRAY &&
+    if (mrb_array_p(v) &&
         RARRAY_LEN(v) > 1 &&
         mrb_equal(mrb, RARRAY_PTR(v)[1], value))
       return v;
@@ -122,16 +95,106 @@ mrb_ary_at(mrb_state *mrb, mrb_value ary)
   return mrb_ary_entry(ary, pos);
 }
 
+static mrb_value
+mrb_ary_values_at(mrb_state *mrb, mrb_value self)
+{
+  mrb_int argc;
+  mrb_value *argv;
+
+  mrb_get_args(mrb, "*", &argv, &argc);
+
+  return mrb_get_values_at(mrb, self, RARRAY_LEN(self), argc, argv, mrb_ary_ref);
+}
+
+
+/*
+ *  call-seq:
+ *     ary.slice!(index)         -> obj or nil
+ *     ary.slice!(start, length) -> new_ary or nil
+ *     ary.slice!(range)         -> new_ary or nil
+ *
+ *  Deletes the element(s) given by an +index+ (optionally up to +length+
+ *  elements) or by a +range+.
+ *
+ *  Returns the deleted object (or objects), or +nil+ if the +index+ is out of
+ *  range.
+ *
+ *     a = [ "a", "b", "c" ]
+ *     a.slice!(1)     #=> "b"
+ *     a               #=> ["a", "c"]
+ *     a.slice!(-1)    #=> "c"
+ *     a               #=> ["a"]
+ *     a.slice!(100)   #=> nil
+ *     a               #=> ["a"]
+ */
+
+static mrb_value
+mrb_ary_slice_bang(mrb_state *mrb, mrb_value self)
+{
+  struct RArray *a = mrb_ary_ptr(self);
+  mrb_int i, j, k, len, alen;
+  mrb_value val;
+  mrb_value *ptr;
+  mrb_value ary;
+
+  mrb_ary_modify(mrb, a);
+
+  if (mrb_get_argc(mrb) == 1) {
+    mrb_value index;
+
+    mrb_get_args(mrb, "o|i", &index, &len);
+    switch (mrb_type(index)) {
+    case MRB_TT_RANGE:
+      if (mrb_range_beg_len(mrb, index, &i, &len, ARY_LEN(a), TRUE) == MRB_RANGE_OK) {
+        goto delete_pos_len;
+      }
+      else {
+        return mrb_nil_value();
+      }
+    case MRB_TT_FIXNUM:
+      val = mrb_funcall(mrb, self, "delete_at", 1, index);
+      return val;
+    default:
+      val = mrb_funcall(mrb, self, "delete_at", 1, index);
+      return val;
+    }
+  }
+
+  mrb_get_args(mrb, "ii", &i, &len);
+ delete_pos_len:
+  alen = ARY_LEN(a);
+  if (i < 0) i += alen;
+  if (i < 0 || alen < i) return mrb_nil_value();
+  if (len < 0) return mrb_nil_value();
+  if (alen == i) return mrb_ary_new(mrb);
+  if (len > alen - i) len = alen - i;
+
+  ary = mrb_ary_new_capa(mrb, len);
+  ptr = ARY_PTR(a);
+  for (j = i, k = 0; k < len; ++j, ++k) {
+    mrb_ary_push(mrb, ary, ptr[j]);
+  }
+
+  ptr += i;
+  for (j = i; j < alen - len; ++j) {
+    *ptr = *(ptr+len);
+    ++ptr;
+  }
+
+  mrb_ary_resize(mrb, self, alen - len);
+  return ary;
+}
+
 void
 mrb_mruby_array_ext_gem_init(mrb_state* mrb)
 {
   struct RClass * a = mrb->array_class;
 
-  mrb_define_class_method(mrb, a, "try_convert", mrb_ary_s_try_convert, MRB_ARGS_REQ(1));
-
   mrb_define_method(mrb, a, "assoc",  mrb_ary_assoc,  MRB_ARGS_REQ(1));
   mrb_define_method(mrb, a, "at",     mrb_ary_at,     MRB_ARGS_REQ(1));
   mrb_define_method(mrb, a, "rassoc", mrb_ary_rassoc, MRB_ARGS_REQ(1));
+  mrb_define_method(mrb, a, "values_at", mrb_ary_values_at, MRB_ARGS_ANY());
+  mrb_define_method(mrb, a, "slice!", mrb_ary_slice_bang,   MRB_ARGS_ARG(1,1));
 }
 
 void

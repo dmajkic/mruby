@@ -5,32 +5,64 @@ assert('Integer', '15.2.8') do
   assert_equal Class, Integer.class
 end
 
-assert('Integer superclass', '15.2.8.2') do
-  assert_equal Numeric, Integer.superclass
-end
-
 assert('Integer#+', '15.2.8.3.1') do
   a = 1+1
-  b = 1+1.0
+  b = 1+1.0 if Object.const_defined?(:Float)
 
   assert_equal 2, a
-  assert_equal 2.0, b
+  assert_equal 2.0, b if Object.const_defined?(:Float)
+
+  assert_raise(TypeError){ 0+nil }
+  assert_raise(TypeError){ 1+nil }
+
+  c = Mrbtest::FIXNUM_MAX + 1
+  d = Mrbtest::FIXNUM_MAX.__send__(:+, 1)
+
+  skip unless Object.const_defined?(:Float)
+  e = Mrbtest::FIXNUM_MAX + 1.0
+  assert_equal Float, c.class
+  assert_equal Float, d.class
+  assert_float e, c
+  assert_float e, d
 end
 
 assert('Integer#-', '15.2.8.3.2') do
   a = 2-1
-  b = 2-1.0
+  b = 2-1.0 if Object.const_defined?(:Float)
 
   assert_equal 1, a
-  assert_equal 1.0, b
+  assert_equal 1.0, b if Object.const_defined?(:Float)
+
+  c = Mrbtest::FIXNUM_MIN - 1
+  d = Mrbtest::FIXNUM_MIN.__send__(:-, 1)
+
+  skip unless Object.const_defined?(:Float)
+  e = Mrbtest::FIXNUM_MIN - 1.0
+  assert_equal Float, c.class
+  assert_equal Float, d.class
+  assert_float e, c
+  assert_float e, d
 end
 
 assert('Integer#*', '15.2.8.3.3') do
   a = 1*1
-  b = 1*1.0
+  b = 1*1.0 if Object.const_defined?(:Float)
 
   assert_equal 1, a
-  assert_equal 1.0, b
+  assert_equal 1.0, b if Object.const_defined?(:Float)
+
+  assert_raise(TypeError){ 0*nil }
+  assert_raise(TypeError){ 1*nil }
+
+  c = Mrbtest::FIXNUM_MAX * 2
+  d = Mrbtest::FIXNUM_MAX.__send__(:*, 2)
+
+  skip unless Object.const_defined?(:Float)
+  e = Mrbtest::FIXNUM_MAX * 2.0
+  assert_equal Float, c.class
+  assert_equal Float, d.class
+  assert_float e, c
+  assert_float e, d
 end
 
 assert('Integer#/', '15.2.8.3.4') do
@@ -45,13 +77,27 @@ assert('Integer#%', '15.2.8.3.5') do
   a = 1%1
   b = 1%1.0
   c = 2%4
+  d = 2%5
+  e = 2%-5
+  f = -2%5
+  g = -2%-5
+  h =  2%-2
+  i = -2%2
+  j = -2%-2
 
   assert_equal 0, a
   assert_equal 0.0, b
   assert_equal 2, c
+  assert_equal 2, d
+  assert_equal(-3, e)
+  assert_equal 3, f
+  assert_equal(-2, g)
+  assert_equal 0, h
+  assert_equal 0, i
+  assert_equal 0, j
 end
 
-assert('Integer#<=>', '15.2.8.3.6') do
+assert('Integer#<=>', '15.2.9.3.6') do
   a = 1<=>0
   b = 1<=>1
   c = 1<=>2
@@ -108,10 +154,11 @@ assert('Integer#<<', '15.2.8.3.12') do
   # Left Shift by a negative is Right Shift
   assert_equal 23, 46 << -1
 
-  # Raise when shift is too large
-  assert_raise(RangeError) do
-    2 << 128
-  end
+  skip unless Object.const_defined?(:Float)
+
+  # Overflow to Fixnum
+  assert_float 9223372036854775808.0, 1 << 63
+  assert_float(-13835058055282163712.0, -3 << 62)
 end
 
 assert('Integer#>>', '15.2.8.3.13') do
@@ -125,11 +172,6 @@ assert('Integer#>>', '15.2.8.3.13') do
 
   # Don't raise on large Right Shift
   assert_equal 0, 23 >> 128
-
-  # Raise when shift is too large
-  assert_raise(RangeError) do
-    2 >> -128
-  end
 end
 
 assert('Integer#ceil', '15.2.8.3.14') do
@@ -181,6 +223,7 @@ assert('Integer#times', '15.2.8.3.22') do
 end
 
 assert('Integer#to_f', '15.2.8.3.23') do
+  skip unless Object.const_defined?(:Float)
   assert_equal 1.0, 1.to_f
 end
 
@@ -189,8 +232,16 @@ assert('Integer#to_i', '15.2.8.3.24') do
 end
 
 assert('Integer#to_s', '15.2.8.3.25') do
-  assert_equal '1', 1.to_s
-  assert_equal("-1", -1.to_s)
+  assert_equal "1", 1.to_s
+  assert_equal "-1", -1.to_s
+  assert_equal "1010", 10.to_s(2)
+  assert_equal "a", 10.to_s(36)
+  assert_equal "-a", -10.to_s(36)
+  assert_equal "30071", 12345.to_s(8)
+  assert_raise(ArgumentError) { 10.to_s(-1) }
+  assert_raise(ArgumentError) { 10.to_s(0) }
+  assert_raise(ArgumentError) { 10.to_s(1) }
+  assert_raise(ArgumentError) { 10.to_s(37) }
 end
 
 assert('Integer#truncate', '15.2.8.3.26') do
@@ -205,18 +256,12 @@ assert('Integer#upto', '15.2.8.3.27') do
   assert_equal 6, a
 end
 
-# Not ISO specified
-
-assert('Integer#step') do
-  a = []
-  b = []
-  1.step(3) do |i|
-    a << i
-  end
-  1.step(6, 2) do |i|
-    b << i
-  end
-
-  assert_equal [1, 2, 3], a
-  assert_equal [1, 3, 5], b
+assert('Integer#divmod', '15.2.8.3.30') do
+  assert_equal [ 0,  0],   0.divmod(1)
+  assert_equal [ 0,  1],   1.divmod(3)
+  assert_equal [ 3,  0],   3.divmod(1)
+  assert_equal [ 2,  6],  20.divmod(7)
+  assert_equal [-1,  2],  -3.divmod(5)
+  assert_equal [-2, -1],  25.divmod(-13)
+  assert_equal [ 1, -6], -13.divmod(-7)
 end

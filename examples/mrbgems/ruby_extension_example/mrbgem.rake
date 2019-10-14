@@ -1,7 +1,7 @@
 MRuby::Gem::Specification.new('ruby_extension_example') do |spec|
   spec.license = 'MIT'
   spec.author  = 'mruby developers'
- 
+
   # Add compile flags
   # spec.cc.flags << ''
 
@@ -10,6 +10,8 @@ MRuby::Gem::Specification.new('ruby_extension_example') do |spec|
 
   # Add libraries
   # spec.linker.libraries << 'external_lib'
+
+  spec.add_dependency('mruby-print', :core => 'mruby-print')
 
   # Default build files
   # spec.rbfiles = Dir.glob("#{dir}/mrblib/*.rb")

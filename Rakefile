@@ -3,11 +3,13 @@
 # basic build file for mruby
 MRUBY_ROOT = File.dirname(File.expand_path(__FILE__))
 MRUBY_BUILD_HOST_IS_CYGWIN = RUBY_PLATFORM.include?('cygwin')
+MRUBY_BUILD_HOST_IS_OPENBSD = RUBY_PLATFORM.include?('openbsd')
+
+$LOAD_PATH << File.join(MRUBY_ROOT, "lib")
 
 # load build systems
-load "#{MRUBY_ROOT}/tasks/ruby_ext.rake"
-load "#{MRUBY_ROOT}/tasks/mruby_build.rake"
-load "#{MRUBY_ROOT}/tasks/mrbgem_spec.rake"
+require "mruby-core-ext"
+require "mruby/build"
 
 # load configuration file
 MRUBY_CONFIG = (ENV['MRUBY_CONFIG'] && ENV['MRUBY_CONFIG'] != '') ? ENV['MRUBY_CONFIG'] : "#{MRUBY_ROOT}/build_config.rb"
@@ -21,25 +23,34 @@ end
 # load custom rules
 load "#{MRUBY_ROOT}/src/mruby_core.rake"
 load "#{MRUBY_ROOT}/mrblib/mrblib.rake"
-load "#{MRUBY_ROOT}/tools/mrbc/mrbc.rake"
 
 load "#{MRUBY_ROOT}/tasks/mrbgems.rake"
 load "#{MRUBY_ROOT}/tasks/libmruby.rake"
 
-load "#{MRUBY_ROOT}/tasks/mrbgems_test.rake"
-load "#{MRUBY_ROOT}/test/mrbtest.rake"
+load "#{MRUBY_ROOT}/tasks/benchmark.rake"
+
+load "#{MRUBY_ROOT}/tasks/gitlab.rake"
+load "#{MRUBY_ROOT}/tasks/doc.rake"
+
+def install_D(src, dst)
+  opts = { :verbose => $verbose }
+  FileUtils.rm_f dst, opts
+  FileUtils.mkdir_p File.dirname(dst), opts
+  FileUtils.cp src, dst, opts
+end
 
 ##############################
 # generic build targets, rules
 task :default => :all
 
+bin_path = ENV['INSTALL_DIR'] || "#{MRUBY_ROOT}/bin"
+
 depfiles = MRuby.targets['host'].bins.map do |bin|
-  install_path = MRuby.targets['host'].exefile("#{MRUBY_ROOT}/bin/#{bin}")
+  install_path = MRuby.targets['host'].exefile("#{bin_path}/#{bin}")
   source_path = MRuby.targets['host'].exefile("#{MRuby.targets['host'].build_dir}/bin/#{bin}")
 
   file install_path => source_path do |t|
-    FileUtils.rm_f t.name, { :verbose => $verbose }
-    FileUtils.cp t.prerequisites.first, t.name, { :verbose => $verbose }
+    install_D t.prerequisites.first, t.name
   end
 
   install_path
@@ -49,29 +60,41 @@ MRuby.each_target do |target|
   gems.map do |gem|
     current_dir = gem.dir.relative_path_from(Dir.pwd)
     relative_from_root = gem.dir.relative_path_from(MRUBY_ROOT)
-    current_build_dir = "#{build_dir}/#{relative_from_root}"
+    current_build_dir = File.expand_path "#{build_dir}/#{relative_from_root}"
+
+    if current_build_dir !~ /^#{build_dir}/
+      current_build_dir = "#{build_dir}/mrbgems/#{gem.name}"
+    end
 
     gem.bins.each do |bin|
       exec = exefile("#{build_dir}/bin/#{bin}")
-      objs = Dir.glob("#{current_dir}/tools/#{bin}/*.{c,cpp,cxx}").map { |f| objfile(f.pathmap("#{current_build_dir}/tools/#{bin}/%n")) }
+      objs = Dir.glob("#{current_dir}/tools/#{bin}/*.{c,cpp,cxx,cc}").map { |f| objfile(f.pathmap("#{current_build_dir}/tools/#{bin}/%n")) }
 
-      file exec => objs + [libfile("#{build_dir}/lib/libmruby")] do |t|
+      file exec => objs + target.libraries do |t|
         gem_flags = gems.map { |g| g.linker.flags }
         gem_flags_before_libraries = gems.map { |g| g.linker.flags_before_libraries }
         gem_flags_after_libraries = gems.map { |g| g.linker.flags_after_libraries }
         gem_libraries = gems.map { |g| g.linker.libraries }
         gem_library_paths = gems.map { |g| g.linker.library_paths }
-        linker.run t.name, t.prerequisites, gem_libraries, gem_library_paths, gem_flags, gem_flags_before_libraries
+        linker.run t.name, t.prerequisites, gem_libraries, gem_library_paths, gem_flags, gem_flags_before_libraries, gem_flags_after_libraries
       end
 
       if target == MRuby.targets['host']
-        install_path = MRuby.targets['host'].exefile("#{MRUBY_ROOT}/bin/#{bin}")
+        install_path = MRuby.targets['host'].exefile("#{bin_path}/#{bin}")
 
         file install_path => exec do |t|
-          FileUtils.rm_f t.name, { :verbose => $verbose }
-          FileUtils.cp t.prerequisites.first, t.name, { :verbose => $verbose }
+          install_D t.prerequisites.first, t.name
         end
         depfiles += [ install_path ]
+      elsif target == MRuby.targets['host-debug']
+        unless MRuby.targets['host'].gems.map {|g| g.bins}.include?([bin])
+          install_path = MRuby.targets['host-debug'].exefile("#{bin_path}/#{bin}")
+
+          file install_path => exec do |t|
+            install_D t.prerequisites.first, t.name
+          end
+          depfiles += [ install_path ]
+        end
       else
         depfiles += [ exec ]
       end
@@ -80,7 +103,7 @@ MRuby.each_target do |target|
 end
 
 depfiles += MRuby.targets.map { |n, t|
-  [t.libfile("#{t.build_dir}/lib/libmruby")]
+  t.libraries
 }.flatten
 
 depfiles += MRuby.targets.reject { |n, t| n == 'host' }.map { |n, t|
@@ -95,12 +118,26 @@ task :all => depfiles do
   MRuby.each_target do
     print_build_summary
   end
+  MRuby::Lockfile.write
 end
 
 desc "run all mruby tests"
-task :test => MRuby.targets.values.map { |t| t.build_mrbtest_lib_only? ? t.libfile("#{t.build_dir}/test/mrbtest") : t.exefile("#{t.build_dir}/test/mrbtest") } do
-  MRuby.each_target do
-    run_test unless build_mrbtest_lib_only?
+task :test
+MRuby.each_target do
+  if test_enabled?
+    t = :"test_#{self.name}"
+    task t => ["all"] do
+      run_test
+    end
+    task :test => t
+  end
+
+  if bintest_enabled?
+    t = :"bintest_#{self.name}"
+    task t => ["all"] do
+      run_bintest
+    end
+    task :test => t
   end
 end
 
@@ -110,5 +147,13 @@ task :clean do
     FileUtils.rm_rf t.build_dir, { :verbose => $verbose }
   end
   FileUtils.rm_f depfiles, { :verbose => $verbose }
-  puts "Cleaned up build folder"
+  puts "Cleaned up target build folder"
+end
+
+desc "clean everything!"
+task :deep_clean => ["clean", "clean_doc"] do
+  MRuby.each_target do |t|
+    FileUtils.rm_rf t.gem_clone_dir, { :verbose => $verbose }
+  end
+  puts "Cleaned up mrbgems build folder"
 end

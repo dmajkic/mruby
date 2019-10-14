@@ -1,12 +1,10 @@
 ##
 # Float ISO Test
 
+if Object.const_defined?(:Float)
+
 assert('Float', '15.2.9') do
   assert_equal Class, Float.class
-end
-
-assert('Float superclass', '15.2.9.2') do
-  assert_equal Numeric, Float.superclass
 end
 
 assert('Float#+', '15.2.9.3.1') do
@@ -15,6 +13,9 @@ assert('Float#+', '15.2.9.3.1') do
 
   assert_float(3.123456789, a)
   assert_float(4.123456789, b)
+
+  assert_raise(TypeError){ 0.0+nil }
+  assert_raise(TypeError){ 1.0+nil }
 end
 
 assert('Float#-', '15.2.9.3.2') do
@@ -81,8 +82,8 @@ assert('Float#ceil', '15.2.9.3.8') do
 end
 
 assert('Float#finite?', '15.2.9.3.9') do
-  assert_true 3.123456789.finite?
-  assert_false (1.0 / 0.0).finite?
+  assert_predicate 3.123456789, :finite?
+  assert_not_predicate 1.0 / 0.0, :finite?
 end
 
 assert('Float#floor', '15.2.9.3.10') do
@@ -127,6 +128,18 @@ assert('Float#round', '15.2.9.3.12') do
   assert_equal(    3, g)
   assert_float(  3.4, h)
   assert_float(3.423, i)
+
+  assert_equal(42.0, 42.0.round(307))
+  assert_equal(1.0e307, 1.0e307.round(2))
+
+  inf = 1.0/0.0
+  assert_raise(FloatDomainError){ inf.round }
+  assert_raise(FloatDomainError){ inf.round(-1) }
+  assert_equal(inf, inf.round(1))
+  nan = 0.0/0.0
+  assert_raise(FloatDomainError){ nan.round }
+  assert_raise(FloatDomainError){ nan.round(-1) }
+  assert_predicate(nan.round(1), :nan?)
 end
 
 assert('Float#to_f', '15.2.9.3.13') do
@@ -137,9 +150,99 @@ end
 
 assert('Float#to_i', '15.2.9.3.14') do
   assert_equal(3, 3.123456789.to_i)
+  assert_raise(FloatDomainError) { Float::INFINITY.to_i }
+  assert_raise(FloatDomainError) { (-Float::INFINITY).to_i }
+  assert_raise(FloatDomainError) { Float::NAN.to_i }
 end
 
 assert('Float#truncate', '15.2.9.3.15') do
   assert_equal( 3,  3.123456789.truncate)
   assert_equal(-3, -3.1.truncate)
 end
+
+assert('Float#divmod') do
+  def check_floats exp, act
+    assert_float exp[0], act[0]
+    assert_float exp[1], act[1]
+  end
+
+  # Note: quotients are Float because mruby does not have Bignum.
+  check_floats [ 0,  0.0],   0.0.divmod(1)
+  check_floats [ 0,  1.1],   1.1.divmod(3)
+  check_floats [ 3,  0.2],   3.2.divmod(1)
+  check_floats [ 2,  6.3],  20.3.divmod(7)
+  check_floats [-1,  1.6],  -3.4.divmod(5)
+  check_floats [-2, -0.5],  25.5.divmod(-13)
+  check_floats [ 1, -6.6], -13.6.divmod(-7)
+  check_floats [ 3,  0.2],   9.8.divmod(3.2)
+end
+
+assert('Float#nan?') do
+  assert_predicate(0.0/0.0, :nan?)
+  assert_not_predicate(0.0, :nan?)
+  assert_not_predicate(1.0/0.0, :nan?)
+  assert_not_predicate(-1.0/0.0, :nan?)
+end
+
+assert('Float#<<') do
+  # Left Shift by one
+  assert_equal 46, 23.0 << 1
+
+  # Left Shift by a negative is Right Shift
+  assert_equal 23, 46.0 << -1
+end
+
+assert('Float#>>') do
+  # Right Shift by one
+  assert_equal 23, 46.0 >> 1
+
+  # Right Shift by a negative is Left Shift
+  assert_equal 46, 23.0 >> -1
+
+  # Don't raise on large Right Shift
+  assert_equal 0, 23.0 >> 128
+
+  # Don't raise on large Right Shift
+  assert_equal(-1, -23.0 >> 128)
+end
+
+assert('Float#to_s') do
+  uses_float = 4e38.infinite?  # enable MRB_USE_FLOAT?
+
+  assert_equal("Infinity", Float::INFINITY.to_s)
+  assert_equal("-Infinity", (-Float::INFINITY).to_s)
+  assert_equal("NaN", Float::NAN.to_s)
+  assert_equal("0", 0.0.to_s)
+  assert_equal("-0", -0.0.to_s)
+  assert_equal("-3.25", -3.25.to_s)
+  assert_equal("50", 50.0.to_s)
+  assert_equal("0.0125", 0.0125.to_s)
+  assert_equal("-0.0125", -0.0125.to_s)
+  assert_equal("1.0e-10", 0.0000000001.to_s)
+  assert_equal("-1.0e-10", -0.0000000001.to_s)
+  assert_equal("1.0e+20", 1e20.to_s)
+  assert_equal("-1.0e+20", -1e20.to_s)
+  assert_equal("1.0e+16", 10000000000000000.0.to_s)
+  assert_equal("-1.0e+16", -10000000000000000.0.to_s)
+  assert_equal("100000", 100000.0.to_s)
+  assert_equal("-100000", -100000.0.to_s)
+  if uses_float
+    assert_equal("1.0e+08", 100000000.0.to_s)
+    assert_equal("-1.0e+08", -100000000.0.to_s)
+    assert_equal("1.0e+07", 10000000.0.to_s)
+    assert_equal("-1.0e+07", -10000000.0.to_s)
+  else
+    assert_equal("1.0e+15", 1000000000000000.0.to_s)
+    assert_equal("-1.0e+15", -1000000000000000.0.to_s)
+    assert_equal("100000000000000", 100000000000000.0.to_s)
+    assert_equal("-100000000000000", -100000000000000.0.to_s)
+  end
+end
+
+assert('Float#eql?') do
+  assert_operator(5.0, :eql?, 5.0)
+  assert_not_operator(5.0, :eql?, 5)
+  assert_not_operator(5.0, :eql?, "5.0")
+end
+
+end # const_defined?(:Float)

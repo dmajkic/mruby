@@ -5,19 +5,25 @@ assert('Hash', '15.2.13') do
   assert_equal Class, Hash.class
 end
 
-assert('Hash superclass', '15.2.13.2') do
-  assert_equal Object, Hash.superclass
-end
-
 assert('Hash#==', '15.2.13.4.1') do
   assert_true({ 'abc' => 'abc' } == { 'abc' => 'abc' })
   assert_false({ 'abc' => 'abc' } ==  { 'cba' => 'cba' })
+  assert_false({ :a => 1 } == true)
+  skip unless Object.const_defined?(:Float)
+  assert_true({ :equal => 1 } == { :equal => 1.0 })
 end
 
 assert('Hash#[]', '15.2.13.4.2') do
   a = { 'abc' => 'abc' }
 
   assert_equal 'abc', a['abc']
+
+  # Hash#[] should call #default (#3272)
+  hash = {}
+  def hash.default(k); self[k] = 1; end
+  hash[:foo] += 1
+
+  assert_equal 2, hash[:foo]
 end
 
 assert('Hash#[]=', '15.2.13.4.3') do
@@ -32,6 +38,17 @@ assert('Hash#clear', '15.2.13.4.4') do
   a.clear
 
   assert_equal({ }, a)
+end
+
+assert('Hash#dup') do
+  a = { 'a' => 1 }
+  b = a.dup
+  a['a'] = 2
+  assert_equal({'a' => 1}, b)
+
+  c = Hash.new { |h, k| h[k] = k.upcase }
+  d = c.dup
+  assert_equal("FOO", d["foo"])
 end
 
 assert('Hash#default', '15.2.13.4.5') do
@@ -66,12 +83,12 @@ assert('Hash#default_proc', '15.2.13.4.7') do
 end
 
 assert('Hash#delete', '15.2.13.4.8') do
-  a = { 'abc' => 'abc' }
-  b = { 'abc' => 'abc' }
+  a = { 'abc' => 'ABC' }
+  b = { 'abc' => 'ABC' }
   b_tmp_1 = false
   b_tmp_2 = false
 
-  a.delete('abc')
+  assert_equal 'ABC', a.delete('abc')
   b.delete('abc') do |k|
     b_tmp_1 = true
   end
@@ -214,6 +231,10 @@ assert('Hash#merge', '15.2.13.4.22') do
                 'xyz_key' => 'xyz_value' }, result_1)
   assert_equal({'abc_key' => 'abc_value', 'cba_key' => 'cba_value',
                 'xyz_key' => 'xyz_value' }, result_2)
+
+  assert_raise(TypeError) do
+    { 'abc_key' => 'abc_value' }.merge "a"
+  end
 end
 
 assert('Hash#replace', '15.2.13.4.23') do
@@ -221,14 +242,34 @@ assert('Hash#replace', '15.2.13.4.23') do
   b = Hash.new.replace(a)
 
   assert_equal({ 'abc_key' => 'abc_value' }, b)
+
+  a = Hash.new(42)
+  b = {}
+  b.replace(a)
+  assert_equal(42, b[1])
+
+  a = Hash.new{|h,x| x}
+  b.replace(a)
+  assert_equal(127, b[127])
+
+   assert_raise(TypeError) do
+    { 'abc_key' => 'abc_value' }.replace "a"
+  end
 end
 
 assert('Hash#shift', '15.2.13.4.24') do
   a = { 'abc_key' => 'abc_value', 'cba_key' => 'cba_value' }
   b = a.shift
 
-  assert_equal({ 'abc_key' => 'abc_value' }, a)
-  assert_equal [ 'cba_key', 'cba_value' ], b
+  assert_equal Array, b.class
+  assert_equal 2, b.size
+  assert_equal 1, a.size
+
+  b = a.shift
+
+  assert_equal Array, b.class
+  assert_equal 2, b.size
+  assert_equal 0, a.size
 end
 
 assert('Hash#size', '15.2.13.4.25') do
@@ -261,6 +302,15 @@ assert('Hash#values', '15.2.13.4.28') do
 end
 
 # Not ISO specified
+
+assert('Hash#eql?') do
+  a = { 'a' => 1, 'b' => 2, 'c' => 3 }
+  b = { 'a' => 1, 'b' => 2, 'c' => 3 }
+  c = { 'a' => 1.0, 'b' => 2, 'c' => 3 }
+  assert_true(a.eql?(b))
+  assert_false(a.eql?(c))
+  assert_false(a.eql?(true))
+end
 
 assert('Hash#reject') do
   h = {:one => 1, :two => 2, :three => 3, :four => 4}
@@ -302,9 +352,27 @@ end
 
 assert('Hash#inspect') do
   h = { "c" => 300, "a" => 100, "d" => 400, "c" => 300  }
+  h["recur"] = h
   ret = h.to_s
 
   assert_include ret, '"c"=>300'
   assert_include ret, '"a"=>100'
   assert_include ret, '"d"=>400'
+  assert_include ret, '"recur"=>{...}'
+end
+
+assert('Hash#rehash') do
+  h = {[:a] => "b"}
+  # hash key modified
+  h.keys[0][0] = :b
+  # h[[:b]] => nil
+  h.rehash
+  assert_equal("b", h[[:b]])
+end
+
+assert('Hash#freeze') do
+  h = {}.freeze
+  assert_raise(FrozenError) do
+    h[:a] = 'b'
+  end
 end

@@ -5,13 +5,10 @@ assert('Range', '15.2.14') do
   assert_equal Class, Range.class
 end
 
-assert('Range superclass', '15.2.14.2') do
-  assert_equal Object, Range.superclass
-end
-
 assert('Range#==', '15.2.14.4.1') do
   assert_true (1..10) == (1..10)
   assert_false (1..10) == (1..100)
+  skip unless Object.const_defined?(:Float)
   assert_true (1..10) == Range.new(1.0, 10.0)
 end
 
@@ -46,11 +43,12 @@ assert('Range#first', '15.2.14.4.7') do
   assert_equal 1, (1..10).first
 end
 
-assert('Range#include', '15.2.14.4.8') do
-  a = (1..10)
+assert('Range#include?', '15.2.14.4.8') do
+  assert_true (1..10).include?(10)
+  assert_false (1..10).include?(11)
 
-  assert_true a.include?(5)
-  assert_false a.include?(20)
+  assert_true (1...10).include?(9)
+  assert_false (1...10).include?(10)
 end
 
 assert('Range#initialize', '15.2.14.4.9') do
@@ -61,6 +59,8 @@ assert('Range#initialize', '15.2.14.4.9') do
   assert_true a.exclude_end?
   assert_equal (1..10), b
   assert_false b.exclude_end?
+
+  assert_raise(NameError) { (0..1).__send__(:initialize, 1, 3) }
 end
 
 assert('Range#last', '15.2.14.4.10') do
@@ -74,9 +74,39 @@ assert('Range#member?', '15.2.14.4.11') do
   assert_false a.member?(20)
 end
 
+assert('Range#to_s', '15.2.14.4.12') do
+  assert_equal "0..1", (0..1).to_s
+  assert_equal "0...1", (0...1).to_s
+  assert_equal "a..b", ("a".."b").to_s
+  assert_equal "a...b", ("a"..."b").to_s
+end
+
+assert('Range#inspect', '15.2.14.4.13') do
+  assert_equal "0..1", (0..1).inspect
+  assert_equal "0...1", (0...1).inspect
+  assert_equal "\"a\"..\"b\"", ("a".."b").inspect
+  assert_equal "\"a\"...\"b\"", ("a"..."b").inspect
+end
+
 assert('Range#eql?', '15.2.14.4.14') do
   assert_true (1..10).eql? (1..10)
   assert_false (1..10).eql? (1..100)
   assert_false (1..10).eql? (Range.new(1.0, 10.0))
   assert_false (1..10).eql? "1..10"
+end
+
+assert('Range#initialize_copy', '15.2.14.4.15') do
+  assert_raise(NameError) { (0..1).__send__(:initialize_copy, 1..3) }
+end
+
+assert('Range#dup') do
+  r = (1..3).dup
+  assert_equal 1, r.begin
+  assert_equal 3, r.end
+  assert_false r.exclude_end?
+
+  r = ("a"..."z").dup
+  assert_equal "a", r.begin
+  assert_equal "z", r.end
+  assert_true r.exclude_end?
 end

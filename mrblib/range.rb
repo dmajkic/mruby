@@ -10,23 +10,51 @@ class Range
   #
   # ISO 15.2.14.4.4
   def each(&block)
+    return to_enum :each unless block
+
     val = self.first
-    unless val.respond_to? :succ
-      raise TypeError, "can't iterate"
+    last = self.last
+
+    if val.kind_of?(Fixnum) && last.kind_of?(Fixnum) # fixnums are special
+      lim = last
+      lim += 1 unless exclude_end?
+      i = val
+      while i < lim
+        block.call(i)
+        i += 1
+      end
+      return self
     end
 
-    last = self.last
+    if val.kind_of?(String) && last.kind_of?(String) # strings are special
+      if val.respond_to? :upto
+        return val.upto(last, exclude_end?, &block)
+      else
+        str_each = true
+      end
+    end
+
+    raise TypeError, "can't iterate" unless val.respond_to? :succ
+
     return self if (val <=> last) > 0
 
-    while((val <=> last) < 0)
+    while (val <=> last) < 0
       block.call(val)
       val = val.succ
+      if str_each
+        break if val.size > last.size
+      end
     end
 
-    if not exclude_end? and (val <=> last) == 0
-      block.call(val)
-    end
+    block.call(val) if !exclude_end? && (val <=> last) == 0
     self
+  end
+
+  # redefine #hash 15.3.1.3.15
+  def hash
+    h = first.hash ^ last.hash
+    h += 1 if self.exclude_end?
+    h
   end
 end
 
@@ -34,7 +62,6 @@ end
 # Range is enumerable
 #
 # ISO 15.2.14.3
-module Enumerable; end
 class Range
   include Enumerable
 end

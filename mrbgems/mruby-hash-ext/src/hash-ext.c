@@ -4,13 +4,9 @@
 ** See Copyright Notice in mruby.h
 */
 
-#include "mruby.h"
-#include "mruby/array.h"
-#include "mruby/class.h"
-#include "mruby/hash.h"
-#include "mruby/khash.h"
-#include "mruby/string.h"
-#include "mruby/variable.h"
+#include <mruby.h>
+#include <mruby/array.h>
+#include <mruby/hash.h>
 
 /*
  * call-seq:
@@ -23,27 +19,54 @@
  *   h.values_at("cow", "cat")  #=> ["bovine", "feline"]
  */
 
-mrb_value
-mrb_hash_values_at(mrb_state *mrb, int argc, mrb_value *argv, mrb_value hash)
-{
-    mrb_value result = mrb_ary_new_capa(mrb, argc);
-    long i;
-
-    for (i=0; i<argc; i++) {
-        mrb_ary_push(mrb, result, mrb_hash_get(mrb, hash, argv[i]));
-    }
-    return result;
-}
-
 static mrb_value
 hash_values_at(mrb_state *mrb, mrb_value hash)
 {
-  mrb_value *argv;
-  int argc;
+  mrb_value *argv, result;
+  mrb_int argc, i;
+  int ai;
 
   mrb_get_args(mrb, "*", &argv, &argc);
+  result = mrb_ary_new_capa(mrb, argc);
+  ai = mrb_gc_arena_save(mrb);
+  for (i = 0; i < argc; i++) {
+    mrb_ary_push(mrb, result, mrb_hash_get(mrb, hash, argv[i]));
+    mrb_gc_arena_restore(mrb, ai);
+  }
+  return result;
+}
 
-  return mrb_hash_values_at(mrb, argc, argv, hash);
+/*
+ *  call-seq:
+ *     hsh.slice(*keys) -> a_hash
+ *
+ *  Returns a hash containing only the given keys and their values.
+ *
+ *     h = { a: 100, b: 200, c: 300 }
+ *     h.slice(:a)           #=> {:a=>100}
+ *     h.slice(:b, :c, :d)   #=> {:b=>200, :c=>300}
+ */
+static mrb_value
+hash_slice(mrb_state *mrb, mrb_value hash)
+{
+  mrb_value *argv, result;
+  mrb_int argc, i;
+
+  mrb_get_args(mrb, "*", &argv, &argc);
+  if (argc == 0) {
+    return mrb_hash_new_capa(mrb, argc);
+  }
+  result = mrb_hash_new_capa(mrb, argc);
+  for (i = 0; i < argc; i++) {
+    mrb_value key = argv[i];
+    mrb_value val;
+
+    val = mrb_hash_fetch(mrb, hash, key, mrb_undef_value());
+    if (!mrb_undef_p(val)) {
+      mrb_hash_set(mrb, result, key, val);
+    }
+  }
+  return result;
 }
 
 void
@@ -52,8 +75,8 @@ mrb_mruby_hash_ext_gem_init(mrb_state *mrb)
   struct RClass *h;
 
   h = mrb->hash_class;
-
-  mrb_define_method(mrb, h, "values_at",              hash_values_at,       MRB_ARGS_ANY());
+  mrb_define_method(mrb, h, "values_at", hash_values_at, MRB_ARGS_ANY());
+  mrb_define_method(mrb, h, "slice",     hash_slice, MRB_ARGS_ANY());
 }
 
 void

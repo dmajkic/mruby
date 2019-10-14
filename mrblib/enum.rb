@@ -1,18 +1,19 @@
 ##
 # Enumerable
 #
-#  ISO 15.3.2
+# The <code>Enumerable</code> mixin provides collection classes with
+# several traversal and searching methods, and with the ability to
+# sort. The class must provide a method `each`, which
+# yields successive members of the collection. If
+# {Enumerable#max}, {#min}, or
+# {#sort} is used, the objects in the collection must also
+# implement a meaningful `<=>` operator, as these methods
+# rely on an ordering between members of the collection.
 #
-#  The <code>Enumerable</code> mixin provides collection classes with
-#  several traversal and searching methods, and with the ability to
-#  sort. The class must provide a method <code>each</code>, which
-#  yields successive members of the collection. If
-#  <code>Enumerable#max</code>, <code>#min</code>, or
-#  <code>#sort</code> is used, the objects in the collection must also
-#  implement a meaningful <code><=></code> operator, as these methods
-#  rely on an ordering between members of the collection.
-
+# @ISO 15.3.2
 module Enumerable
+
+  NONE = Object.new
 
   ##
   # Call the given block for each element
@@ -23,23 +24,12 @@ module Enumerable
   #
   # ISO 15.3.2.2.1
   def all?(&block)
-    st = true
     if block
-      self.each{|val|
-        unless block.call(val)
-          st = false
-          break
-        end
-      }
+      self.each{|*val| return false unless block.call(*val)}
     else
-      self.each{|val|
-        unless val
-          st = false
-          break
-        end
-      }
+      self.each{|*val| return false unless val.__svalue}
     end
-    st
+    true
   end
 
   ##
@@ -51,23 +41,12 @@ module Enumerable
   #
   # ISO 15.3.2.2.2
   def any?(&block)
-    st = false
     if block
-      self.each{|val|
-        if block.call(val)
-          st = true
-          break
-        end
-      }
+      self.each{|*val| return true if block.call(*val)}
     else
-      self.each{|val|
-        if val
-          st = true
-          break
-        end
-      }
+      self.each{|*val| return true if val.__svalue}
     end
-    st
+    false
   end
 
   ##
@@ -78,30 +57,30 @@ module Enumerable
   #
   # ISO 15.3.2.2.3
   def collect(&block)
+    return to_enum :collect unless block
+
     ary = []
-    self.each{|val|
-      ary.push(block.call(val))
-    }
+    self.each{|*val| ary.push(block.call(*val))}
     ary
   end
 
   ##
-  # Call the given block for each element
-  # which is yield by +each+. Return
-  # +ifnone+ if no block value was true.
-  # Otherwise return the first block value
-  # which had was true.
+  # Return the first element for which
+  # value from the block is true. If no
+  # object matches, calls +ifnone+ and
+  # returns its result. Otherwise returns
+  # +nil+.
   #
   # ISO 15.3.2.2.4
   def detect(ifnone=nil, &block)
-    ret = ifnone
-    self.each{|val|
-      if block.call(val)
-        ret = val
-        break
+    return to_enum :detect, ifnone unless block
+
+    self.each{|*val|
+      if block.call(*val)
+        return val.__svalue
       end
     }
-    ret
+    ifnone.call unless ifnone.nil?
   end
 
   ##
@@ -112,9 +91,11 @@ module Enumerable
   #
   # ISO 15.3.2.2.5
   def each_with_index(&block)
+    return to_enum :each_with_index unless block
+
     i = 0
-    self.each{|val|
-      block.call(val, i)
+    self.each{|*val|
+      block.call(val.__svalue, i)
       i += 1
     }
     self
@@ -127,8 +108,9 @@ module Enumerable
   # ISO 15.3.2.2.6
   def entries
     ary = []
-    self.each{|val|
-      ary.push val
+    self.each{|*val|
+      # __svalue is an internal method
+      ary.push val.__svalue
     }
     ary
   end
@@ -147,9 +129,11 @@ module Enumerable
   #
   # ISO 15.3.2.2.8
   def find_all(&block)
+    return to_enum :find_all unless block
+
     ary = []
-    self.each{|val|
-      ary.push(val) if block.call(val)
+    self.each{|*val|
+      ary.push(val.__svalue) if block.call(*val)
     }
     ary
   end
@@ -164,9 +148,10 @@ module Enumerable
   # ISO 15.3.2.2.9
   def grep(pattern, &block)
     ary = []
-    self.each{|val|
-      if pattern === val
-        ary.push((block)? block.call(val): val)
+    self.each{|*val|
+      sv = val.__svalue
+      if pattern === sv
+        ary.push((block)? block.call(*val): sv)
       end
     }
     ary
@@ -180,14 +165,10 @@ module Enumerable
   #
   # ISO 15.3.2.2.10
   def include?(obj)
-    st = false
-    self.each{|val|
-      if val == obj
-        st = true
-        break
-      end
+    self.each{|*val|
+      return true if val.__svalue == obj
     }
-    st
+    false
   end
 
   ##
@@ -202,7 +183,7 @@ module Enumerable
     raise ArgumentError, "too many arguments" if args.size > 2
     if Symbol === args[-1]
       sym = args[-1]
-      block = ->(x,y){x.send(sym,y)}
+      block = ->(x,y){x.__send__(sym,y)}
       args.pop
     end
     if args.empty?
@@ -212,7 +193,8 @@ module Enumerable
       flag = false
       result = args[0]
     end
-    self.each{|val|
+    self.each{|*val|
+      val = val.__svalue
       if flag
         # push first element as initial
         flag = false
@@ -241,7 +223,8 @@ module Enumerable
   def max(&block)
     flag = true  # 1st element?
     result = nil
-    self.each{|val|
+    self.each{|*val|
+      val = val.__svalue
       if flag
         # 1st element
         result = val
@@ -267,7 +250,8 @@ module Enumerable
   def min(&block)
     flag = true  # 1st element?
     result = nil
-    self.each{|val|
+    self.each{|*val|
+      val = val.__svalue
       if flag
         # 1st element
         result = val
@@ -300,13 +284,15 @@ module Enumerable
   #
   # ISO 15.3.2.2.16
   def partition(&block)
+    return to_enum :partition unless block
+
     ary_T = []
     ary_F = []
-    self.each{|val|
-      if block.call(val)
-        ary_T.push(val)
+    self.each{|*val|
+      if block.call(*val)
+        ary_T.push(val.__svalue)
       else
-        ary_F.push(val)
+        ary_F.push(val.__svalue)
       end
     }
     [ary_T, ary_F]
@@ -320,9 +306,11 @@ module Enumerable
   #
   # ISO 15.3.2.2.17
   def reject(&block)
+    return to_enum :reject unless block
+
     ary = []
-    self.each{|val|
-      ary.push(val) unless block.call(val)
+    self.each{|*val|
+      ary.push(val.__svalue) unless block.call(*val)
     }
     ary
   end
@@ -334,45 +322,6 @@ module Enumerable
   alias select find_all
 
   ##
-  # TODO
-  # Does this OK? Please test it.
-  def __sort_sub__(sorted, work, src_ary, head, tail, &block)
-    if head == tail
-      sorted[head] = work[head] if src_ary == 1
-      return
-    end
-
-    # on current step, which is a src ary?
-    if src_ary == 0
-      src, dst = sorted, work
-    else
-      src, dst = work, sorted
-    end
-
-    key = src[head]    # key value for dividing values
-    i, j = head, tail  # position to store on the dst ary
-
-    (head + 1).upto(tail){|idx|
-      if ((block)? block.call(src[idx], key): (src[idx] <=> key)) > 0
-        # larger than key
-        dst[j] = src[idx]
-        j -= 1
-      else
-        dst[i] = src[idx]
-        i += 1
-      end
-    }
-
-    sorted[i] = key
-
-    # sort each sub-array
-    src_ary = (src_ary + 1) % 2  # exchange a src ary
-    __sort_sub__(sorted, work, src_ary, head, i - 1, &block) if i > head
-    __sort_sub__(sorted, work, src_ary, i + 1, tail, &block) if i < tail
-  end
-#  private :__sort_sub__
-
-  ##
   # Return a sorted array of all elements
   # which are yield by +each+. If no block
   # is given <=> will be invoked on each
@@ -382,12 +331,7 @@ module Enumerable
   #
   # ISO 15.3.2.2.19
   def sort(&block)
-    ary = []
-    self.each{|val| ary.push(val)}
-    unless ary.empty?
-      __sort_sub__(ary, ::Array.new(ary.size), 0, 0, ary.size - 1, &block)
-    end
-    ary
+    self.map{|*val| val.__svalue}.sort(&block)
   end
 
   ##
@@ -395,4 +339,15 @@ module Enumerable
   #
   # ISO 15.3.2.2.20
   alias to_a entries
+
+  # redefine #hash 15.3.1.3.15
+  def hash
+    h = 12347
+    i = 0
+    self.each do |e|
+      h = __update_hash(h, i, e.hash)
+      i += 1
+    end
+    h
+  end
 end

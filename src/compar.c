@@ -4,10 +4,10 @@
 ** See Copyright Notice in mruby.h
 */
 
-#include "mruby.h"
+#include <mruby.h>
 
 void
 mrb_init_comparable(mrb_state *mrb)
 {
-  mrb_define_module(mrb, "Comparable");
+  mrb_define_module(mrb, "Comparable");  /* 15.3.3 */
 }

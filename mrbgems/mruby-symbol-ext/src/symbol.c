@@ -1,13 +1,7 @@
-#include "mruby.h"
-#include "mruby/khash.h"
-#include "mruby/array.h"
-
-typedef struct symbol_name {
-  size_t len;
-  const char *name;
-} symbol_name;
-
-KHASH_DECLARE(n2s, symbol_name, mrb_sym, 1)
+#include <mruby.h>
+#include <mruby/khash.h>
+#include <mruby/array.h>
+#include <mruby/string.h>
 
 /*
  *  call-seq:
@@ -24,29 +18,51 @@ KHASH_DECLARE(n2s, symbol_name, mrb_sym, 1)
  *                                     :Tms, :getwd, :$=, :ThreadGroup,
  *                                     :wait2, :$>]
  */
+#ifdef MRB_ENABLE_ALL_SYMBOLS
 static mrb_value
 mrb_sym_all_symbols(mrb_state *mrb, mrb_value self)
 {
-  khiter_t k;
-  mrb_sym sym;
-  khash_t(n2s) *h = mrb->name2sym;
-  mrb_value ary = mrb_ary_new_capa(mrb, kh_size(h));
+  mrb_sym i, lim;
+  mrb_value ary = mrb_ary_new_capa(mrb, mrb->symidx);
 
-  for (k = kh_begin(h); k != kh_end(h); k++) {
-    if (kh_exist(h, k)) {
-      sym = kh_value(h, k);
-      mrb_ary_push(mrb, ary, mrb_symbol_value(sym));
-    }
+  for (i=1, lim=mrb->symidx+1; i<lim; i++) {
+    mrb_sym sym = i<<1;
+    mrb_ary_push(mrb, ary, mrb_symbol_value(sym));
   }
 
   return ary;
+}
+#endif
+
+/*
+ * call-seq:
+ *   sym.length    -> integer
+ *
+ * Same as <code>sym.to_s.length</code>.
+ */
+static mrb_value
+mrb_sym_length(mrb_state *mrb, mrb_value self)
+{
+  mrb_int len;
+#ifdef MRB_UTF8_STRING
+  mrb_int byte_len;
+  const char *name = mrb_sym_name_len(mrb, mrb_symbol(self), &byte_len);
+  len = mrb_utf8_len(name, byte_len);
+#else
+  mrb_sym_name_len(mrb, mrb_symbol(self), &len);
+#endif
+  return mrb_fixnum_value(len);
 }
 
 void
 mrb_mruby_symbol_ext_gem_init(mrb_state* mrb)
 {
   struct RClass *s = mrb->symbol_class;
+#ifdef MRB_ENABLE_ALL_SYMBOLS
   mrb_define_class_method(mrb, s, "all_symbols", mrb_sym_all_symbols, MRB_ARGS_NONE());
+#endif
+  mrb_define_method(mrb, s, "length", mrb_sym_length, MRB_ARGS_NONE());
+  mrb_define_method(mrb, s, "size", mrb_sym_length, MRB_ARGS_NONE());
 }
 
 void

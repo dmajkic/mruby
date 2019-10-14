@@ -1,5 +1,5 @@
 #include <stdlib.h>
-#include "mruby.h"
+#include <mruby.h>
 
 static mrb_value
 f_exit(mrb_state *mrb, mrb_value self)
@@ -7,7 +7,7 @@ f_exit(mrb_state *mrb, mrb_value self)
   mrb_int i = EXIT_SUCCESS;
 
   mrb_get_args(mrb, "|i", &i);
-  exit(i);
+  exit((int)i);
   /* not reached */
   return mrb_nil_value();
 }
@@ -15,7 +15,7 @@ f_exit(mrb_state *mrb, mrb_value self)
 void
 mrb_mruby_exit_gem_init(mrb_state* mrb)
 {
-  mrb_define_method(mrb, mrb->kernel_module, "exit", f_exit, MRB_ARGS_REQ(1));
+  mrb_define_method(mrb, mrb->kernel_module, "exit", f_exit, MRB_ARGS_OPT(1));
 }
 
 void

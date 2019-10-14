@@ -4,21 +4,31 @@
 ** See Copyright Notice in mruby.h
 */
 
-#include <stddef.h>
 #include <string.h>
-#include "mruby.h"
+#include <mruby.h>
 
 /* configuration section */
 /* allocated memory address should be multiple of POOL_ALIGNMENT */
 /* or undef it if alignment does not matter */
 #ifndef POOL_ALIGNMENT
+#if INTPTR_MAX == INT64_MAX
+#define POOL_ALIGNMENT 8
+#else
 #define POOL_ALIGNMENT 4
+#endif
 #endif
 /* page size of memory pool */
 #ifndef POOL_PAGE_SIZE
 #define POOL_PAGE_SIZE 16000
 #endif
 /* end of configuration section */
+
+/* Disable MSVC warning "C4200: nonstandard extension used: zero-sized array
+ * in struct/union" when in C++ mode */
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4200)
+#endif
 
 struct mrb_pool_page {
   struct mrb_pool_page *next;
@@ -28,6 +38,10 @@ struct mrb_pool_page {
   char page[];
 };
 
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
+
 struct mrb_pool {
   mrb_state *mrb;
   struct mrb_pool_page *pages;
@@ -36,20 +50,20 @@ struct mrb_pool {
 #undef TEST_POOL
 #ifdef TEST_POOL
 
-#define mrb_malloc(m,s) malloc(s)
+#define mrb_malloc_simple(m,s) malloc(s)
 #define mrb_free(m,p) free(p)
 #endif
 
 #ifdef POOL_ALIGNMENT
-#  define ALIGN_PADDING(x) ((-x) & (POOL_ALIGNMENT - 1))
+#  define ALIGN_PADDING(x) ((SIZE_MAX - (x) + 1) & (POOL_ALIGNMENT - 1))
 #else
 #  define ALIGN_PADDING(x) (0)
 #endif
 
-mrb_pool*
+MRB_API mrb_pool*
 mrb_pool_open(mrb_state *mrb)
 {
-  mrb_pool *pool = (mrb_pool *)mrb_malloc(mrb, sizeof(mrb_pool));
+  mrb_pool *pool = (mrb_pool *)mrb_malloc_simple(mrb, sizeof(mrb_pool));
 
   if (pool) {
     pool->mrb = mrb;
@@ -59,7 +73,7 @@ mrb_pool_open(mrb_state *mrb)
   return pool;
 }
 
-void
+MRB_API void
 mrb_pool_close(mrb_pool *pool)
 {
   struct mrb_pool_page *page, *tmp;
@@ -81,7 +95,7 @@ page_alloc(mrb_pool *pool, size_t len)
 
   if (len < POOL_PAGE_SIZE)
     len = POOL_PAGE_SIZE;
-  page = (struct mrb_pool_page *)mrb_malloc(pool->mrb, sizeof(struct mrb_pool_page)+len);
+  page = (struct mrb_pool_page *)mrb_malloc_simple(pool->mrb, sizeof(struct mrb_pool_page)+len);
   if (page) {
     page->offset = 0;
     page->len = len;
@@ -90,7 +104,7 @@ page_alloc(mrb_pool *pool, size_t len)
   return page;
 }
 
-void*
+MRB_API void*
 mrb_pool_alloc(mrb_pool *pool, size_t len)
 {
   struct mrb_pool_page *page;
@@ -118,7 +132,7 @@ mrb_pool_alloc(mrb_pool *pool, size_t len)
   return page->last;
 }
 
-mrb_bool
+MRB_API mrb_bool
 mrb_pool_can_realloc(mrb_pool *pool, void *p, size_t len)
 {
   struct mrb_pool_page *page;
@@ -139,7 +153,7 @@ mrb_pool_can_realloc(mrb_pool *pool, void *p, size_t len)
   return FALSE;
 }
 
-void*
+MRB_API void*
 mrb_pool_realloc(mrb_pool *pool, void *p, size_t oldlen, size_t newlen)
 {
   struct mrb_pool_page *page;
@@ -165,6 +179,9 @@ mrb_pool_realloc(mrb_pool *pool, void *p, size_t oldlen, size_t newlen)
     page = page->next;
   }
   np = mrb_pool_alloc(pool, newlen);
+  if (np == NULL) {
+    return NULL;
+  }
   memcpy(np, p, oldlen);
   return np;
 }
